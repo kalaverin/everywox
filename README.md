@@ -20,7 +20,7 @@
 
 ### Optional steps
 
-6. Also install cargo packaging upgrade tool by run 'cargo install cargo-update'.
+6. Also install cargo packaging upgrade tool by run `cargo install cargo-update`.
 
 7. After it you can upgrade all packages by `cargo install-update --all`.
 
