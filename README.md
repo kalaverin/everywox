@@ -30,7 +30,7 @@
 
 2. Run `mise install` to install dependencies.
 
-3. Get absolute path of virtuan environment Scripts directory, e.g. `d:/apps/utils/ergo/wox/plugins/everywox/.venv.nt/scripts/` without file name.
+3. Get absolute path of virtual environment Scripts directory, e.g. `d:/apps/utils/ergo/wox/plugins/everywox/.venv.nt/scripts/` without file name.
 
 4. Set it in Wox settings as Python Path.
 
