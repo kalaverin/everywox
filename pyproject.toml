@@ -5,6 +5,8 @@ description = "Small Plugin for Wox + Everything"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "basedpyright>=1.31.6",
+    "better-exceptions>=0.3.3",
     "exespy>=1.0.1",
     "fastcache>=1.1.0",
     "fuzzywuzzy>=0.18.0",
@@ -12,5 +14,8 @@ dependencies = [
     "lxml>=6.0.2",
     "pyinstaller>=6.16.0",
     "python-levenshtein>=0.27.1",
+    "python-lsp-server[all]>=1.13.1",
     "pywin32>=311",
+    "ruff>=0.13.3",
+    "ty>=0.0.1a21",
 ]

@@ -1,13 +1,14 @@
 [env]
 _.python.venv = {path = ".venv.nt", create = true}
 
+BETTER_EXCEPTIONS = "1"
+
 VIRTUAL_ENV = ".venv.nt"
-
-UV_LINK_MODE = "copy"
-UV_PROJECT_ENVIRONMENT = ".venv.nt"
-
 VIRTUAL_ENV_DISABLE_PROMPT = "1"
 
+UV_COMPILE_BYTECODE = "0"
+UV_LINK_MODE = "copy"
+UV_PROJECT_ENVIRONMENT = ".venv.nt"
 
 [hooks]
 postinstall = [

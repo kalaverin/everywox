@@ -17,6 +17,7 @@ from subprocess import (
 
 import search
 from const import WOX_SDK_PATH
+from lxml import etree
 from win32com import client
 from win32process import CREATE_NO_WINDOW
 
@@ -26,24 +27,29 @@ try:
 
 except ImportError:
     import sys
+
     sys.path = [WOX_SDK_PATH] + sys.path
     from wox import Wox
 
 
 def needs_admin(path):
     from win32api import GetFileVersionInfo
+
     with suppress(Exception):
         info = GetFileVersionInfo(path, "\\")
-        ms = info['FileVersionMS']
-        ls = info['FileVersionLS']
+        ms = info["FileVersionMS"]
+        ls = info["FileVersionLS"]
         return (ms & 0x1) == 1
 
 
 def needs_admin_another_one(path):
     import ctypes
+
     try:
         manifest = ctypes.c_wchar_p()
-        ctypes.windll.shell32.GetAppManifest(ctypes.c_wchar_p(path), ctypes.byref(manifest))
+        ctypes.windll.shell32.GetAppManifest(
+            ctypes.c_wchar_p(path), ctypes.byref(manifest)
+        )
 
     except (AttributeError, TypeError):
         return False
@@ -53,7 +59,6 @@ def needs_admin_another_one(path):
 
 def needs_admon_another_one_yet(path):
     from exespy import pe_file
-    from lxml import etree
 
     pe = pe_file.PEFile(path)
     # TODO: pe.sha256
@@ -69,26 +74,25 @@ def needs_admon_another_one_yet(path):
     # requireAdministrator
 
     for top in etree.fromstring(manifest_rsrc.data).iterchildren():
-        if top.tag.endswith('trustInfo'):
-            ns = top.tag[:-len('trustInfo')]
+        if top.tag.endswith("trustInfo"):
+            ns = top.tag[: -len("trustInfo")]
             for internal in top.iterdescendants():
-                if internal.tag == f'{ns}requestedExecutionLevel':
-                    return internal.get('level')
+                if internal.tag == f"{ns}requestedExecutionLevel":
+                    return internal.get("level")
 
 
 def run_something(path):
-
     extension = Path(path).suffix[1:].lower()
 
-    if extension in ('lnk', 'pif'):
+    if extension in ("lnk", "pif"):
         link = client.Dispatch("WScript.Shell").CreateShortCut(path)
 
-        path      = link.TargetPath
-        work_dir  = link.WorkingDirectory
+        path = link.TargetPath
+        work_dir = link.WorkingDirectory
         arguments = link.Arguments.split()
 
     else:
-        work_dir  = op.dirname(path)
+        work_dir = op.dirname(path)
         arguments = []
 
     os.chdir(work_dir)
@@ -101,41 +105,40 @@ def run_something(path):
         [path] + arguments,
         startupinfo=startupinfo,
         creationflags=(
-            DETACHED_PROCESS |
-            CREATE_NO_WINDOW |
-            CREATE_NEW_PROCESS_GROUP |
-
-            CREATE_BREAKAWAY_FROM_JOB |
             DETACHED_PROCESS
+            | CREATE_NO_WINDOW
+            | CREATE_NEW_PROCESS_GROUP
+            | CREATE_BREAKAWAY_FROM_JOB
+            | DETACHED_PROCESS
         ),
-        stdin  = DEVNULL,
-        stdout = DEVNULL,
-        stderr = DEVNULL,
+        stdin=DEVNULL,
+        stdout=DEVNULL,
+        stderr=DEVNULL,
     )
     search.increment(path)
 
 
 class Everything(Wox):
-
     def query(self, query):
         results = []
         for full, path, name, count, rate in search.lookup(query):
-
             title = op.basename(full).lower()
-            if op.splitext(title)[1].lower() == '.exe':
+            if op.splitext(title)[1].lower() == ".exe":
                 title = op.splitext(title)[0]
 
-            results.append({
-                "Title": title,
-                "SubTitle": path,
-                "IcoPath": full,
-                "ContextData": "ctxData",
-                "JsonRPCAction": {
-                    'method': 'run_something',
-                    'parameters': [full],
-                    'dontHideAfterAction': False,
+            results.append(
+                {
+                    "Title": title,
+                    "SubTitle": path,
+                    "IcoPath": full,
+                    "ContextData": "ctxData",
+                    "JsonRPCAction": {
+                        "method": "run_something",
+                        "parameters": [full],
+                        "dontHideAfterAction": False,
+                    },
                 }
-            })
+            )
         return results
 
     def run_something(self, path):
@@ -150,8 +153,8 @@ class Everything(Wox):
         # })
         return results
 
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     # must be here for Wox using
     Everything()
 
