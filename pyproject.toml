@@ -1,0 +1,16 @@
+[project]
+name = "everywox"
+version = "0.1.0"
+description = "Small Plugin for Wox + Everything"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "exespy>=1.0.1",
+    "fastcache>=1.1.0",
+    "fuzzywuzzy>=0.18.0",
+    "jellyfish>=1.2.0",
+    "lxml>=6.0.2",
+    "pyinstaller>=6.16.0",
+    "python-levenshtein>=0.27.1",
+    "pywin32>=311",
+]

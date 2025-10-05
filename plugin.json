@@ -1,0 +1,13 @@
+{
+    "ID":"f53b08c3-ff4b-44e1-bc78-c674a0f420a9",
+    "ActionKeyword":"",
+    "Name":"Everything Executable",
+    "Description":"Plug-in for fast search any executables via Everything IPC",
+    "Author":"alex@kalaver.in",
+    "Version":"0.1",
+    "Language":"python",
+    "Website":"https://github.com/Wox-launcher/Wox",
+    "IcoPath":"Images\\app.png",
+    "ExecuteFileName":"main.py",
+    "Disabled": false
+}

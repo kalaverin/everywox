@@ -1,0 +1,29 @@
+[env]
+_.python.venv = {path = ".venv.nt", create = true}
+
+VIRTUAL_ENV = ".venv.nt"
+
+UV_LINK_MODE = "copy"
+UV_PROJECT_ENVIRONMENT = ".venv.nt"
+
+VIRTUAL_ENV_DISABLE_PROMPT = "1"
+
+
+[hooks]
+postinstall = [
+    "uv venv --clear",
+    "uv sync --refresh"
+]
+
+[settings]
+env_file = '.env'
+experimental = true
+idiomatic_version_file_enable_tools = ["python"]
+python.compile = false
+python.uv_venv_auto = true
+
+[tools]
+just = "latest"
+python = "3.13"
+ruff = "latest"
+uv = "latest"
