@@ -1,11 +1,10 @@
+// https://zed.dev/docs/configuring-languages
 {
-    // "python": {
-    //     "interpreter": {
-    //         "path": "d:/apps/utils/ergo/wox/plugins/everywox/.venv.nt/scripts/python.exe"
-    //     }
-    // },
+    "project_name": "Wox",
     "languages": {
         "Python": {
+            "tab_size": 4,
+            "formatter": "language_server",
             "language_servers": [
                 "basedpyright",
                 "ty",
@@ -41,8 +40,8 @@
         "pylsp": {
             "binary": {
                 "path": "d:/apps/utils/ergo/wox/plugins/everywox/.venv.nt/scripts/pylsp.exe",
-                "arguments": []
-            }
+                "arguments": [],
+            },
         },
         "ruff": {
             "binary": {
