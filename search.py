@@ -7,9 +7,8 @@ from collections.abc import Generator, Iterable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
-from functools import cache, reduce
+from functools import cache
 from math import sqrt
-from operator import add
 from pathlib import Path
 from time import time
 from typing import TypeVar
@@ -79,7 +78,7 @@ def get_api() -> ctypes.WinDLL:
     return ctypes.WinDLL(cs.DLL)
 
 
-def search_api(term: str) -> ctypes.WinDLL:
+def call_everything(term: str) -> ctypes.WinDLL:
 
     api = get_api()
     api.Everything_GetResultRunCount.argtypes = [
@@ -114,8 +113,8 @@ def search_api(term: str) -> ctypes.WinDLL:
 
 @cache
 def get_used_chars(x: list[str]) -> str:
-    stems: tuple[str, ...] = tuple(unique(x))
-    return ''.join(stems)
+    chars: tuple[str, ...] = tuple(unique(x))
+    return ''.join(chars)
 
 
 @cache
@@ -143,122 +142,236 @@ def count_missing_chars_count(term: str, base: str) -> float:
     return (len(set_term) - len(common)) / len(term)
 
 
-def call_dll_search(term: str):
+def get_extension(path: str) -> str:
+    result: list[str] = []
+    for char in reversed(path):
+        if char in ('.', '\\', '/'):
+            break
+        result.append(char)
 
-    term = re.sub(r'(\s+)', ' ', term.strip().lower())
-    if len(term) <= cs.MIN_QUERY_LENGTH:
-        return term, []
+    if len(result) == len(path):
+        return ''
+    return ''.join(reversed(result)).lower()
 
-    query: str = '*'.join(map('*'.join, term.split(' ')))
 
-    api = search_api(query)
-    api.Everything_QueryW(True)  # False == async
+def its_ignored_path(path: str) -> bool:
+    lowered = path.lower()
+    if (
+        lowered.startswith(cs.WINDOWS_SXS_REPOSITORY) or
+        lowered.startswith(cs.WINDOWS_CONTAINERS_LAYERS)
+    ):
+        return True
 
-    buf_path = ctypes.create_unicode_buffer(260)
-    buf_count = ctypes.c_ulonglong(1)
+    return get_extension(lowered) not in cs.ENABLED_EXTENSIONS
+
+
+def call_dll_search(query: str) -> dict[str, list[tuple[str, int]]]:
+
+    query = re.sub(r'(\s+)', ' ', query.strip().lower())
+    if len(query) <= cs.MIN_QUERY_LENGTH:
+        return {}
+
+    term: str = '*'.join(map('*'.join, query.split(' ')))
+
+    # call Everything via ABI interface
+    api = call_everything(term)
+    api.Everything_QueryW(True)  # set sync mode
 
     result = defaultdict(list)
-    for no in range(api.Everything_GetNumResults()):
+    result_count: int = api.Everything_GetNumResults()
 
-        api.Everything_GetResultFullPathNameW(no, buf_path, 260)
+    # allocate buffers for retrieve result
+    int_ptr = ctypes.c_ulonglong(1)
+    str_ptr = ctypes.create_unicode_buffer(260)
 
-        full = ctypes.wstring_at(buf_path)
-        lowered = full.lower()
+    for no in range(result_count):
 
-        if (
-            lowered.startswith(cs.WINDOWS_SXS_REPOSITORY) or
-            lowered.startswith(cs.WINDOWS_CONTAINERS_LAYERS)
-        ):
+        # put result number to buffer
+        api.Everything_GetResultFullPathNameW(no, str_ptr, 260)
+
+        # read string from buffer
+        path = ctypes.wstring_at(str_ptr)
+
+        # skip path, can be only executable and not in hidden folders
+        if its_ignored_path(path):
             continue
 
-        split = op.splitext(op.basename(full))
-        if split[-1][1:].lower() not in cs.ENABLED_EXTENSIONS:
-            continue
+        # read run count from buffer
+        runs = api.Everything_GetResultRunCount(no, int_ptr)
 
-        base = op.basename(full).lower()
-        runs = api.Everything_GetResultRunCount(no, buf_count)
-
-        result[base].append((full, runs))
+        base = op.basename(path).lower()
+        result[base].append((path, runs))
 
     api.Everything_CleanUp()
-    return term, dict(result)
+    return dict(result)
 
 
-def _lookup(query: str) -> tuple[Answer, ...]:
+def subsequence_match(query: str, stem: str) -> float:
+    if not query:
+        return 0.0
+
+    query_idx = 0
+    match_positions = []
+
+    for text_idx, char in enumerate(stem):
+        if query_idx < len(query) and char == query[query_idx]:
+            match_positions.append(text_idx)
+            query_idx += 1
+
+    if query_idx != len(query):
+        return 0.0
+
+    if len(match_positions) < 2:
+        density = 1.0
+
+    else:
+        gaps = [
+            match_positions[i + 1] - match_positions[i]
+            for i in range(len(match_positions) - 1)
+        ]
+        avg_gap = sum(gaps) / len(gaps)
+        density = 1.0 / (1.0 + avg_gap * 0.1)
+
+    start_bonus = 1.2 if match_positions[0] == 0 else 1.0
+    length_ratio = len(query) / len(stem)
+    return density * start_bonus * (0.5 + length_ratio * 0.5)
+
+
+def precompute_scores(
+    query: str,
+    order: dict[str, list[tuple[str, int]]],
+) -> dict[str, float]:
 
     def sort_by_length_delta(x) -> int:
-        return abs(len(term) - len(x))
-
-    term, order = call_dll_search(query)
-    if not order:
-        return []
+        return abs(len(query) - len(x))
 
     ratio = dict(
         process.extract(
-            term,
+            query,
             sorted(order),
             scorer=fuzz.token_sort_ratio,
             limit=len(order),
         )
     )
 
-    length = len(term)
-    rates = Counter()
-    chars = get_used_chars(term)
+    result = {}
+    length = len(query)
+    chars = get_used_chars(query)
 
-    for stem in sorted(order, key=sort_by_length_delta):
+    for word in sorted(order, key=sort_by_length_delta):
+        if ext := get_extension(word):
+            stem = word[:-len(ext) -1]
+        else:
+            stem = word
 
-        if count_missing_letters(term, stem) > cs.MAX_MISSING_LETTERS:
+        if count_missing_letters(query, stem) > cs.MAX_MISSING_LETTERS:
             continue
 
         base = get_used_chars(stem)
 
-        # calc absolute and relative Damerau-Levenstein distance
-        rate = (
+        if stem == query:
+            rate = 20.0
+
+        elif stem.startswith(query):
+            rate = 5.0
+
+        else:
+            rate = 1.0
+
+        by_match = (
+            distance(query, stem) *
+            distance_relative(query, stem)
+        )
+        rate /= sqrt(1 + by_match) + 1
+
+        by_chars = (
             distance(chars, base) *
             distance_relative(chars, base)
         )
+        rate /= sqrt(1 + by_chars) + 1
 
-        rate *= sqrt(1 + distance(term, stem[:length]))
+        rate *= (
+            subsequence_match(query, stem) +
+            subsequence_match(chars, base)
+        )
 
-        rate *= sqrt(1 + count_missing_chars_count(term, stem))
+        rate /= sqrt(1 + by_chars) * sqrt(1 + by_match)
 
-        rate /= 1 + same_start_bonus(term, stem)
+        rate /= sqrt(1 + distance(query, stem[:length]))
 
-        rate *= float(ratio.get(stem, 0)) / 100
+        rate /= sqrt(1 + count_missing_chars_count(query, stem))
 
-        if rate <= cs.MAX_RATE_FOR_RESULT:
-            rates[stem] = rate
+        rate /= 1 + same_start_bonus(query, stem)
 
+        rate /= float(ratio.get(word, 1)) / 100
+
+        if rate <= 0.001:
+            continue
+
+        result[word] = rate
+
+    return result
+
+
+def postprocess_scoring(
+    order: dict[str, list[tuple[str, int]]],
+    scores: dict[str, float],
+) -> tuple[Answer, ...]:
     result = defaultdict(list)
 
-    for stem, rate in reversed(rates.most_common()):
-        for full, count in order[stem]:
+    runstat = {}
+    scoring = {}
+    mapping = defaultdict(list)
 
+    for stem, score in scores.items():
+        for full, runs in order[stem]:
             path = to_path(full)
 
+            # check file existence and have permissions
             try:
-                if not path.exists():
-                    continue
+                stat = path.stat()
             except Exception:
                 continue
 
-            result[count].append(
-                Answer(
-                    path=path,
-                    dir=path.parent,
-                    stem=stem,
-                    runs=count,
-                    score=rate
-                )
+            # use (inode, device) as unique file identifier
+            key = stat.st_ino, stat.st_dev
+            mapping[key].append(full)
+
+            if key not in scoring:
+                runstat[key] = runs
+                scoring[key] = sqrt(runs + 1) * sqrt(score + 1)
+
+    # lock mapping to avoid changes during missing __getitem__
+    mapping = dict(mapping)
+
+    result = []
+    for key, score in Counter(scoring).most_common(cs.MAX_RESULTS_COUNT):
+
+        # take the shortest path from duplicates
+        path = to_path(sorted(mapping[key], key=len)[0])
+
+        # finally, prepare the answer
+        result.append(
+            Answer(
+                path=path,
+                dir=path.parent,
+                stem=path.stem,
+                runs=runstat[key],
+                score=score,
             )
+        )
 
-    result = [result[i] for i in sorted(result, reverse=True)]
+    return tuple(result)
 
-    result = tuple(tuple(reduce(add, result)) if result else [])
 
-    result = result[:cs.MAX_RESULTS_COUNT]
-    return result
+def _lookup(query: str) -> tuple[Answer, ...]:
+    order = call_dll_search(query)
+    if not order:
+        return ()
+
+    scores = precompute_scores(query, order)
+    return postprocess_scoring(order, scores)
+
 
 
 def lookup(query: str) -> tuple[Answer, ...]:
@@ -290,4 +403,3 @@ if __name__ == '__main__':
             f'{item.score:0.3f} '
             f'{item.path} '
         )
-        # print(dir(item.path))
