@@ -1,91 +1,87 @@
 // https://zed.dev/docs/configuring-languages
 {
-    "project_name": "Wox",
-    "languages": {
-        "Python": {
-            "tab_size": 4,
-            "formatter": "language_server",
-            "language_servers": [
-                "basedpyright",
-                "ty",
-                "pylsp",
-                "!pyright",
-                "..."
-            ],
-            "format_on_save": "off"
-        },
-        "YAML": {
-            "tab_size": 2
-        },
-        "TOML": {
-            "tab_size": 2
-        }
+  "project_name": "Wox",
+  "languages": {
+    "Python": {
+      "tab_size": 4,
+      "formatter": "language_server",
+      "language_servers": [
+        "basedpyright",
+        "ty",
+        "pylsp",
+        "ruff",
+        "!pyright",
+        "!pyflakes",
+        "..."
+      ],
+      "format_on_save": "off"
     },
-    "lsp": {
-        // "pyright": {
-        //   "initialization_options": {
-        //     "settings": {
-        //       "python": {
-        //         "pythonPath": "d:/apps/utils/ergo/wox/plugins/everywox/.venv.nt/scripts/python.exe",
-        //         "analysis": {
-        //           "typeCheckingMode": "basic",
-        //           "autoSearchPaths": true,
-        //           "useLibraryCodeForTypes": true,
-        //           "diagnosticMode": "workspace"
-        //         }
-        //       }
-        //     }
-        //   }
-        // },
-        "pylsp": {
-            "binary": {
-                "path": "d:/apps/utils/ergo/wox/plugins/everywox/.venv.nt/scripts/pylsp.exe",
-                "arguments": [],
-            },
-        },
-        "ruff": {
-            "binary": {
-                "path": "d:/apps/utils/ergo/wox/plugins/everywox/.venv.nt/scripts/ruff.exe",
-                "arguments": ["server"]
-            }
-        },
-        "ty": {
-            "binary": {
-                "path": "d:/apps/utils/ergo/wox/plugins/everywox/.venv.nt/scripts/ty.exe",
-                "arguments": ["server"]
-            }
-        },
-        "basedpyright": {
-            "binary": {
-                "path": "d:/apps/utils/ergo/wox/plugins/everywox/.venv.nt/scripts/basedpyright-langserver.exe",
-                "arguments": ["--stdio"]
-            },
-            "settings": {
-                "pythonVersion": "3.12",
-                "basedpyright.analysis": {
-                    "typeCheckingMode": "all",
-                    "diagnosticMode": "workspace",
-                    "inlayHints.callArgumentNames": true,
-                    "diagnosticSeverityOverrides": {
-                        "reportAny": false,
-                        "reportCallInDefaultInitializer": false,
-                        "reportDuplicateImport": "information",
-                        "reportExplicitAny": false,
-                        "reportImplicitStringConcatenation": false,
-                        "reportIncompatibleVariableOverride": false,
-                        "reportMissingParameterType": false,
-                        "reportUnknownArgumentType": false,
-                        "reportUnknownMemberType": false,
-                        "reportUnknownParameterType": false,
-                        "reportUnknownVariableType": false,
-                        "reportUnusedCallResult": false,
-                        "reportUnusedImport": "information",
-                        "reportUnusedVariable": "warning"
-                    },
-                    "enableExperimentalFeatures": true,
-                    "logLevel": "Information"
-                }
-            }
-        }
+    "JSONC": {
+      "tab_size": 2
+    },
+    "TOML": {
+      "tab_size": 2
+    },
+    "YAML": {
+      "tab_size": 2
     }
+  },
+  "lsp": {
+    "basedpyright": {
+      "binary": {
+        "path": "d:/apps/utils/ergo/wox/plugins/everywox/.venv.nt/scripts/basedpyright-langserver.exe",
+        "arguments": [
+          "--stdio"
+        ]
+      },
+      "settings": {
+        "pythonVersion": "3.12",
+        "basedpyright.analysis": {
+          "typeCheckingMode": "all",
+          "diagnosticMode": "workspace",
+          "inlayHints.callArgumentNames": true,
+          "diagnosticSeverityOverrides": {
+            "reportAny": false,
+            "reportCallInDefaultInitializer": false,
+            "reportDuplicateImport": "information",
+            "reportExplicitAny": false,
+            "reportImplicitStringConcatenation": false,
+            "reportIncompatibleVariableOverride": false,
+            "reportMissingParameterType": false,
+            "reportUnknownArgumentType": false,
+            "reportUnknownMemberType": false,
+            "reportUnknownParameterType": false,
+            "reportUnknownVariableType": false,
+            "reportUnusedCallResult": false,
+            "reportUnusedImport": "information",
+            "reportUnusedVariable": "warning"
+          },
+          "enableExperimentalFeatures": true,
+          "logLevel": "Information"
+        }
+      }
+    },
+    "pylsp": {
+      "binary": {
+        "path": "d:/apps/utils/ergo/wox/plugins/everywox/.venv.nt/scripts/pylsp.exe",
+        "arguments": []
+      }
+    },
+    "ruff": {
+      "binary": {
+        "path": "d:/apps/utils/ergo/wox/plugins/everywox/.venv.nt/scripts/ruff.exe",
+        "arguments": [
+          "server"
+        ]
+      }
+    },
+    "ty": {
+      "binary": {
+        "path": "d:/apps/utils/ergo/wox/plugins/everywox/.venv.nt/scripts/ty.exe",
+        "arguments": [
+          "server"
+        ]
+      }
+    },
+  }
 }
