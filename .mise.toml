@@ -1,18 +1,16 @@
 [env]
 _.python.venv = {path = ".venv.nt", create = true}
 
-BETTER_EXCEPTIONS = "1"
-
-VIRTUAL_ENV = ".venv.nt"
-VIRTUAL_ENV_DISABLE_PROMPT = "1"
-
 UV_COMPILE_BYTECODE = "0"
 UV_LINK_MODE = "copy"
 UV_PROJECT_ENVIRONMENT = ".venv.nt"
+VIRTUAL_ENV_DISABLE_PROMPT = "1"
+
+BETTER_EXCEPTIONS = "1"
 
 [hooks]
 postinstall = [
-    "uv venv --clear",
+    "uv venv --allow-existing",
     "uv sync --refresh"
 ]
 
