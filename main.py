@@ -29,8 +29,8 @@ def needs_admin(path: str) -> bool:
 
     with suppress(Exception):
         info = GetFileVersionInfo(path, "\\")
-        ms = info["FileVersionMS"]
-        ls = info["FileVersionLS"]
+        ms = info['FileVersionMS']
+        # ls = info['FileVersionLS']
         return (ms & 0x1) == 1
 
     return False
@@ -80,9 +80,8 @@ def needs_admon_another_one_yet(path: str) -> bool:
     return False
 
 
-def run_something(path: Path) -> None:
-    path = Path(path)
-    extension = path.suffix[1:].lower()
+def run_something(path: str) -> None:
+    extension = Path(path).suffix[1:].lower()
 
     if extension in ("lnk", "pif"):
         link = client.Dispatch("WScript.Shell").CreateShortCut(path)
