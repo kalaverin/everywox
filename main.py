@@ -1,7 +1,8 @@
-# pywin32 exespy lxml
-
+from exespy import pe_file
+import ctypes
 import os
 import os.path as op
+from typing import Any
 from contextlib import suppress
 from pathlib import Path
 from subprocess import (
@@ -18,6 +19,7 @@ from subprocess import (
 import search
 from const import WOX_SDK_PATH
 from lxml import etree
+from win32api import GetFileVersionInfo
 from win32com import client
 from win32process import CREATE_NO_WINDOW
 
@@ -33,7 +35,6 @@ except ImportError:
 
 
 def needs_admin(path):
-    from win32api import GetFileVersionInfo
 
     with suppress(Exception):
         info = GetFileVersionInfo(path, "\\")
@@ -43,8 +44,6 @@ def needs_admin(path):
 
 
 def needs_admin_another_one(path):
-    import ctypes
-
     try:
         manifest = ctypes.c_wchar_p()
         ctypes.windll.shell32.GetAppManifest(
@@ -54,28 +53,32 @@ def needs_admin_another_one(path):
     except (AttributeError, TypeError):
         return False
 
-    return "requireAdministrator" in manifest.value
+    return manifest.value and "requireAdministrator" in manifest.value
 
 
 def needs_admon_another_one_yet(path):
-    from exespy import pe_file
 
-    pe = pe_file.PEFile(path)
-    # TODO: pe.sha256
+    pe = pe_file.PEFile(path)  # TODO: pe.sha256
 
-    manifest_rsrc = None
-    for resource in pe.resources:
-        if resource.rtype == "RT_MANIFEST":
-            manifest_rsrc = resource
-            break
+    def get_manifest(pe: pe_file.PEFile):
+        for resource in pe.resources:
+            if resource.rtype == "RT_MANIFEST":
+                return resource
+
+        raise ValueError("No manifest found")
+
+    try:
+        manifest_rsrc = get_manifest(pe)
+    except ValueError:
+        return None
 
     # asInvoker
     # highestAvailable
     # requireAdministrator
 
     for top in etree.fromstring(manifest_rsrc.data).iterchildren():
-        if top.tag.endswith("trustInfo"):
-            ns = top.tag[: -len("trustInfo")]
+        if str(top.tag).endswith("trustInfo"):
+            ns = top.tag[:-len("trustInfo")]
             for internal in top.iterdescendants():
                 if internal.tag == f"{ns}requestedExecutionLevel":
                     return internal.get("level")
@@ -119,7 +122,8 @@ def run_something(path):
 
 
 class Everything(Wox):
-    def query(self, query):
+
+    def query(self, query)-> list[dict[str, Any]]:
         results = []
         for full, path, name, count, rate in search.lookup(query):
             title = op.basename(full).lower()
@@ -144,7 +148,7 @@ class Everything(Wox):
     def run_something(self, path):
         return run_something(path)
 
-    def context_menu(self, data):
+    def context_menu(self, _):
         results = []
         # results.append({
         #     "Title": "Context menu entry",
