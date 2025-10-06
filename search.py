@@ -240,7 +240,7 @@ def _lookup(query: str) -> tuple[Answer, ...]:
             try:
                 if not path.exists():
                     continue
-            except PermissionError:
+            except Exception:
                 continue
 
             result[count].append(
