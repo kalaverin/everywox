@@ -1,8 +1,6 @@
-from exespy import pe_file
 import ctypes
 import os
 import os.path as op
-from typing import Any
 from contextlib import suppress
 from pathlib import Path
 from subprocess import (
@@ -15,14 +13,16 @@ from subprocess import (
     SW_HIDE,
     Popen,
 )
+from typing import Any
 
-import search
-from const import WOX_SDK_PATH
+from exespy import pe_file
 from lxml import etree
 from win32api import GetFileVersionInfo
 from win32com import client
 from win32process import CREATE_NO_WINDOW
 
+import search
+from const import WOX_SDK_PATH
 
 try:
     from wox import Wox
@@ -34,7 +34,7 @@ except ImportError:
     from wox import Wox
 
 
-def needs_admin(path):
+def needs_admin(path: str) -> bool:
 
     with suppress(Exception):
         info = GetFileVersionInfo(path, "\\")
@@ -42,8 +42,10 @@ def needs_admin(path):
         ls = info["FileVersionLS"]
         return (ms & 0x1) == 1
 
+    return False
 
-def needs_admin_another_one(path):
+
+def needs_admin_another_one(path: str) -> bool:
     try:
         manifest = ctypes.c_wchar_p()
         ctypes.windll.shell32.GetAppManifest(
@@ -53,10 +55,10 @@ def needs_admin_another_one(path):
     except (AttributeError, TypeError):
         return False
 
-    return manifest.value and "requireAdministrator" in manifest.value
+    return bool(manifest.value and "requireAdministrator" in manifest.value)
 
 
-def needs_admon_another_one_yet(path):
+def needs_admon_another_one_yet(path: str) -> bool:
 
     pe = pe_file.PEFile(path)  # TODO: pe.sha256
 
@@ -69,8 +71,9 @@ def needs_admon_another_one_yet(path):
 
     try:
         manifest_rsrc = get_manifest(pe)
+
     except ValueError:
-        return None
+        return False
 
     # asInvoker
     # highestAvailable
@@ -83,8 +86,10 @@ def needs_admon_another_one_yet(path):
                 if internal.tag == f"{ns}requestedExecutionLevel":
                     return internal.get("level")
 
+    return False
 
-def run_something(path):
+
+def run_something(path: str) -> None:
     extension = Path(path).suffix[1:].lower()
 
     if extension in ("lnk", "pif"):
@@ -145,10 +150,10 @@ class Everything(Wox):
             )
         return results
 
-    def run_something(self, path):
+    def run_something(self, path) -> None:
         return run_something(path)
 
-    def context_menu(self, _):
+    def context_menu(self, _) -> list[Any]:
         results = []
         # results.append({
         #     "Title": "Context menu entry",

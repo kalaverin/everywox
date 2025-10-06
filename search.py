@@ -1,15 +1,20 @@
 import ctypes
-import datetime
 import os
 import os.path as op
 import re
 import struct
 from collections import Counter, defaultdict
+from collections.abc import Generator, Iterable
+from datetime import datetime
 from functools import cache, reduce
-from itertools import filterfalse
 from math import sqrt
 from operator import add
+from pathlib import Path
 from time import time
+from typing import TypeVar
+
+from fuzzywuzzy import fuzz, process  # pyright: ignore[reportMissingTypeStubs]
+from jellyfish import damerau_levenshtein_distance
 
 from const import (
     EXTENSIONS,
@@ -22,40 +27,49 @@ from const import (
     SORT,
 )
 
-from fuzzywuzzy import fuzz, process
-from jellyfish import damerau_levenshtein_distance
+T = TypeVar('T')
 
 # CACHE = Redis(expire=60, options={'socket_connect_timeout' : 0.01})
 CACHE = None
 
+#
 
-EVERYTHING_DLL = op.join(
-    op.dirname(__file__), 'Dll', 'Everything{}.dll'
-    .format(64 if 'PROGRAMFILES(X86)' in os.environ else 32))
+FILE = Path(__file__)
+ARCH: int = 64 if 'PROGRAMFILES(X86)' in os.environ else 32
+DLL: Path = FILE.parent / 'Dll' / f'Everything{ARCH}.dll'
 
-POSIX_EPOCH   = datetime.datetime.strptime('1970-01-01 00:00:00', '%Y-%m-%d %H:%M:%S')
-WINDOWS_TICKS = int(1 / 10 ** -7)  # 10,000,000 (100 nanoseconds or .1 microseconds)
-WINDOWS_EPOCH = datetime.datetime.strptime('1601-01-01 00:00:00', '%Y-%m-%d %H:%M:%S')
-EPOCH_DIFF    = (POSIX_EPOCH - WINDOWS_EPOCH).total_seconds()  # 11644473600.0
-WIN2POSIX     = (EPOCH_DIFF * WINDOWS_TICKS)  # 116444736000000000.0
+POSIX_EPOCH = datetime.strptime(
+    '1970-01-01 00:00:00',
+    '%Y-%m-%d %H:%M:%S',
+)
+
+WINDOWS_EPOCH = datetime.strptime(
+    '1601-01-01 00:00:00',
+    '%Y-%m-%d %H:%M:%S',
+)
+
+WINDOWS_TICKS: int = int(1 / 10 ** -7)  # 10,000,000 (100 nanoseconds or .1 microseconds)
+EPOCH_DIFF: float = (POSIX_EPOCH - WINDOWS_EPOCH).total_seconds()  # 11644473600.0
+WIN2POSIX: float = (EPOCH_DIFF * WINDOWS_TICKS)  # 116444736000000000.0
 
 
-if not op.isfile(EVERYTHING_DLL):
-    raise NotImplementedError(
-        "please, unpack dll's from Everything SDK to `{}`"
-        .format(op.join(op.dirname(__file__), 'Dll')))
+if not DLL.is_file():
+    raise FileNotFoundError(
+        f"please, unpack dll's from Everything SDK to `{DLL.parent}`")
 
 
 def get_time(filetime):
-    return datetime.datetime.fromtimestamp(
+    return datetime.fromtimestamp(
         (struct.unpack('<Q', filetime)[0] - WIN2POSIX) / WINDOWS_TICKS)
 
 
-def unique(iterable):
-    seen = set()
-    for itm in filterfalse(seen.__contains__, iterable):
-        seen.add(itm)
-        yield itm
+def unique(iterable: Iterable[T]) -> Generator[T, None, None]:
+    seen: set[T] = set()
+
+    for item in iterable:
+        if item not in seen:
+            yield item
+        seen.add(item)
 
 
 @cache
@@ -73,36 +87,50 @@ def distance_relative(x, y):
 
 @cache
 def get_api():
-    return ctypes.WinDLL(EVERYTHING_DLL)
+    return ctypes.WinDLL(DLL)
 
 
-def search_api(term):
+def search_api(term: str) -> ctypes.WinDLL:
     api = get_api()
+
     api.Everything_GetResultRunCount.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_ulonglong)]
+
     api.Everything_SetRegex(False)
+
     api.Everything_SetMatchPath(False)
+
     api.Everything_SetMatchCase(False)
+
     api.Everything_SetMatchWholeWord(True)
+
     api.Everything_SetSort(SORT.RUN_COUNT_DESCENDING)
-    api.Everything_SetRequestFlags(REQUEST.FILE_NAME | REQUEST.PATH | REQUEST.RUN_COUNT | REQUEST.EXTENSION)
+
     api.Everything_SetSearchW(r'file:ext:{} *{}*'.format(';'.join(EXTENSIONS), term))
+
+    api.Everything_SetRequestFlags(
+        REQUEST.FILE_NAME |
+        REQUEST.PATH |
+        REQUEST.RUN_COUNT |
+        REQUEST.EXTENSION
+    )
     return api
 
 
 @cache
-def unique_letters(x):
-    return ''.join(unique(x))
+def unique_letters(x: list[str]) -> str:
+    stems: tuple[str, ...] = tuple(unique(x))
+    return ''.join(stems)
 
 
 @cache
-def count_missing_letters(term, base):
+def count_missing_letters(term: str, base: str) -> int:
     set_term = set(term)
     common = set_term & set(base)
     return len(set_term) - len(common)
 
 
 @cache
-def count_common_head(term, base):
+def count_common_head(term: str, base: str) -> int:
     for i in range(len(term)):
         try:
             if term[i] != base[i]:
@@ -113,13 +141,13 @@ def count_common_head(term, base):
 
 
 @cache
-def count_missing_letters_rel(term, base):
+def count_missing_letters_rel(term: str, base: str):
     set_term = set(term)
     common = set_term & set(base)
     return (len(set_term) - len(common)) / len(term)
 
 
-def call(term):
+def call(term: str):
     term = re.sub(r'(\s+)', ' ', term.strip().lower())
     if len(term) <= MIN_QUERY_LENGTH:
         return term, []
@@ -163,7 +191,7 @@ def call(term):
     return term, result
 
 
-def _lookup(query):
+def _lookup(query: str):
     try:
         if CACHE is None:
             raise KeyError
@@ -177,8 +205,14 @@ def _lookup(query):
 
         unq_term = unique_letters(term)
 
-        ratio = dict(process.extract(
-            term, sorted(order), scorer=fuzz.token_sort_ratio, limit=len(order)))
+        ratio = dict(
+            process.extract(
+                term,
+                sorted(order),
+                scorer=fuzz.token_sort_ratio,
+                limit=len(order),
+            )
+        )
 
         rates = Counter()
         for base in sorted(order, key=lambda x: abs(len(term) - len(x))):
@@ -208,15 +242,16 @@ def _lookup(query):
     return result
 
 
-def lookup(query):
+def lookup(query: str):
     if KEYBOARD.IS_RUS(query):
         query = KEYBOARD.CONVERT(query)
     return _lookup(query)
 
 
-def increment(path):
-    api = get_api()
+def increment(path) -> None:
     path = re.sub(r'(\\+)', r'\\', path)
+
+    api = get_api()
     api.Everything_IncRunCountFromFileNameW(path)
     api.Everything_CleanUp()
 
