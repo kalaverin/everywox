@@ -1,10 +1,11 @@
 import ctypes
-import os
 import os.path as op
 import re
 import struct
 from collections import Counter, defaultdict
 from collections.abc import Generator, Iterable
+from contextlib import suppress
+from dataclasses import dataclass
 from datetime import datetime
 from functools import cache, reduce
 from math import sqrt
@@ -16,51 +17,40 @@ from typing import TypeVar
 from fuzzywuzzy import fuzz, process  # pyright: ignore[reportMissingTypeStubs]
 from jellyfish import damerau_levenshtein_distance
 
-from const import (
-    EXTENSIONS,
-    KEYBOARD,
-    MAX_MISSING_LETTERS,
-    MAX_RATE_FOR_RESULT,
-    MAX_RESULTS_COUNT,
-    MIN_QUERY_LENGTH,
-    REQUEST,
-    SORT,
-)
+import const as cs
 
-T = TypeVar('T')
-
-# CACHE = Redis(expire=60, options={'socket_connect_timeout' : 0.01})
-CACHE = None
-
-#
-
-FILE = Path(__file__)
-ARCH: int = 64 if 'PROGRAMFILES(X86)' in os.environ else 32
-DLL: Path = FILE.parent / 'Dll' / f'Everything{ARCH}.dll'
-
-POSIX_EPOCH = datetime.strptime(
-    '1970-01-01 00:00:00',
-    '%Y-%m-%d %H:%M:%S',
-)
-
-WINDOWS_EPOCH = datetime.strptime(
-    '1601-01-01 00:00:00',
-    '%Y-%m-%d %H:%M:%S',
-)
-
-WINDOWS_TICKS: int = int(1 / 10 ** -7)  # 10,000,000 (100 nanoseconds or .1 microseconds)
-EPOCH_DIFF: float = (POSIX_EPOCH - WINDOWS_EPOCH).total_seconds()  # 11644473600.0
-WIN2POSIX: float = (EPOCH_DIFF * WINDOWS_TICKS)  # 116444736000000000.0
+T = TypeVar(name='T')
 
 
-if not DLL.is_file():
+@dataclass
+class Answer:
+
+    path: Path
+    dir: Path
+
+    stem: str
+    runs: int
+    score: float
+
+    @property
+    def name(self) -> str:
+        return self.path.name
+
+
+
+if not cs.DLL.is_file():
     raise FileNotFoundError(
-        f"please, unpack dll's from Everything SDK to `{DLL.parent}`")
+        f"please, unpack dll's from Everything SDK to `{cs.DLL.parent}`")
 
 
-def get_time(filetime):
-    return datetime.fromtimestamp(
-        (struct.unpack('<Q', filetime)[0] - WIN2POSIX) / WINDOWS_TICKS)
+@cache
+def to_path(path: str) -> Path:
+    return Path(path)
+
+
+def get_time(filetime: bytes) -> datetime:
+    value = struct.unpack('<Q', filetime)[0]
+    return datetime.fromtimestamp((value - cs.WIN2POSIX) / cs.WINDOWS_TICKS)
 
 
 def unique(iterable: Iterable[T]) -> Generator[T, None, None]:
@@ -69,31 +59,33 @@ def unique(iterable: Iterable[T]) -> Generator[T, None, None]:
     for item in iterable:
         if item not in seen:
             yield item
-        seen.add(item)
+            seen.add(item)
 
 
 @cache
-def distance(x, y):
+def distance(x, y) -> int:
     return damerau_levenshtein_distance(x, y)
 
 
 @cache
-def distance_relative(x, y):
-    try:
-        return distance(x, y) / float(min([len(x), len(y)]))
-    except ZeroDivisionError:
-        return .0
+def distance_relative(x, y) -> float:
+    with suppress(ZeroDivisionError):
+        return distance(x, y) / float(min(len(x), len(y)))
+    return .0
 
 
 @cache
-def get_api():
-    return ctypes.WinDLL(DLL)
+def get_api() -> ctypes.WinDLL:
+    return ctypes.WinDLL(cs.DLL)
 
 
 def search_api(term: str) -> ctypes.WinDLL:
-    api = get_api()
 
-    api.Everything_GetResultRunCount.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_ulonglong)]
+    api = get_api()
+    api.Everything_GetResultRunCount.argtypes = [
+        ctypes.c_int,
+        ctypes.POINTER(ctypes.c_ulonglong),
+    ]
 
     api.Everything_SetRegex(False)
 
@@ -103,21 +95,25 @@ def search_api(term: str) -> ctypes.WinDLL:
 
     api.Everything_SetMatchWholeWord(True)
 
-    api.Everything_SetSort(SORT.RUN_COUNT_DESCENDING)
+    api.Everything_SetSort(
+        cs.SortingCriteria.RUN_COUNT_DESCENDING.value
+    )
 
-    api.Everything_SetSearchW(r'file:ext:{} *{}*'.format(';'.join(EXTENSIONS), term))
+    api.Everything_SetSearchW(
+        f'file:ext:{";".join(cs.ENABLED_EXTENSIONS)} *{term}*'
+    )
 
     api.Everything_SetRequestFlags(
-        REQUEST.FILE_NAME |
-        REQUEST.PATH |
-        REQUEST.RUN_COUNT |
-        REQUEST.EXTENSION
+        cs.SearchRequest.FILE_NAME |
+        cs.SearchRequest.PATH |
+        cs.SearchRequest.RUN_COUNT |
+        cs.SearchRequest.EXTENSION
     )
     return api
 
 
 @cache
-def unique_letters(x: list[str]) -> str:
+def get_used_chars(x: list[str]) -> str:
     stems: tuple[str, ...] = tuple(unique(x))
     return ''.join(stems)
 
@@ -130,7 +126,7 @@ def count_missing_letters(term: str, base: str) -> int:
 
 
 @cache
-def count_common_head(term: str, base: str) -> int:
+def same_start_bonus(term: str, base: str) -> int:
     for i in range(len(term)):
         try:
             if term[i] != base[i]:
@@ -141,114 +137,137 @@ def count_common_head(term: str, base: str) -> int:
 
 
 @cache
-def count_missing_letters_rel(term: str, base: str):
+def count_missing_chars_count(term: str, base: str) -> float:
     set_term = set(term)
     common = set_term & set(base)
     return (len(set_term) - len(common)) / len(term)
 
 
-def call(term: str):
+def call_dll_search(term: str):
+
     term = re.sub(r'(\s+)', ' ', term.strip().lower())
-    if len(term) <= MIN_QUERY_LENGTH:
+    if len(term) <= cs.MIN_QUERY_LENGTH:
         return term, []
 
-    try:
-        if CACHE is None:
-            raise KeyError
-        key = 'call_{!r}'.format(term)
-        result = CACHE[key]
+    query: str = '*'.join(map('*'.join, term.split(' ')))
 
-    except KeyError:
-        api = search_api('*'.join(map('*'.join, term.split(' '))))
-        api.Everything_QueryW(True)  # False == async
+    api = search_api(query)
+    api.Everything_QueryW(True)  # False == async
 
-        buf_path = ctypes.create_unicode_buffer(260)
-        buf_count = ctypes.c_ulonglong(1)
+    buf_path = ctypes.create_unicode_buffer(260)
+    buf_count = ctypes.c_ulonglong(1)
 
-        result = defaultdict(list)
-        for no in range(api.Everything_GetNumResults()):
-            api.Everything_GetResultFullPathNameW(no, buf_path, 260)
-            full = ctypes.wstring_at(buf_path)
+    result = defaultdict(list)
+    for no in range(api.Everything_GetNumResults()):
 
-            if full.lower().startswith(r'C:\Windows\WinSxS'.lower()):
-                continue
+        api.Everything_GetResultFullPathNameW(no, buf_path, 260)
 
-            split = op.splitext(op.basename(full))
-            if split[-1][1:].lower() not in EXTENSIONS:
-                continue
+        full = ctypes.wstring_at(buf_path)
+        lowered = full.lower()
 
-            # base = op.basename(split[0]).lower()
-            base = op.basename(full).lower()
-            count = api.Everything_GetResultRunCount(no, buf_count)
-            result[base].append((full, count))
+        if (
+            lowered.startswith(cs.WINDOWS_SXS_REPOSITORY) or
+            lowered.startswith(cs.WINDOWS_CONTAINERS_LAYERS)
+        ):
+            continue
 
-        api.Everything_CleanUp()
+        split = op.splitext(op.basename(full))
+        if split[-1][1:].lower() not in cs.ENABLED_EXTENSIONS:
+            continue
 
-        result = dict(result)
-        if CACHE is not None:
-            CACHE[key] = result
+        base = op.basename(full).lower()
+        runs = api.Everything_GetResultRunCount(no, buf_count)
 
-    return term, result
+        result[base].append((full, runs))
+
+    api.Everything_CleanUp()
+    return term, dict(result)
 
 
-def _lookup(query: str):
-    try:
-        if CACHE is None:
-            raise KeyError
-        key = 'lookup_{!r}'.format(query)
-        result = CACHE[key]
+def _lookup(query: str) -> tuple[Answer, ...]:
 
-    except KeyError:
-        term, order = call(query)
-        if not order:
-            return []
+    def sort_by_length_delta(x) -> int:
+        return abs(len(term) - len(x))
 
-        unq_term = unique_letters(term)
+    term, order = call_dll_search(query)
+    if not order:
+        return []
 
-        ratio = dict(
-            process.extract(
-                term,
-                sorted(order),
-                scorer=fuzz.token_sort_ratio,
-                limit=len(order),
-            )
+    ratio = dict(
+        process.extract(
+            term,
+            sorted(order),
+            scorer=fuzz.token_sort_ratio,
+            limit=len(order),
+        )
+    )
+
+    length = len(term)
+    rates = Counter()
+    chars = get_used_chars(term)
+
+    for stem in sorted(order, key=sort_by_length_delta):
+
+        if count_missing_letters(term, stem) > cs.MAX_MISSING_LETTERS:
+            continue
+
+        base = get_used_chars(stem)
+
+        # calc absolute and relative Damerau-Levenstein distance
+        rate = (
+            distance(chars, base) *
+            distance_relative(chars, base)
         )
 
-        rates = Counter()
-        for base in sorted(order, key=lambda x: abs(len(term) - len(x))):
-            if count_missing_letters(term, base) > MAX_MISSING_LETTERS:
+        rate *= sqrt(1 + distance(term, stem[:length]))
+
+        rate *= sqrt(1 + count_missing_chars_count(term, stem))
+
+        rate /= 1 + same_start_bonus(term, stem)
+
+        rate *= float(ratio.get(stem, 0)) / 100
+
+        if rate <= cs.MAX_RATE_FOR_RESULT:
+            rates[stem] = rate
+
+    result = defaultdict(list)
+
+    for stem, rate in reversed(rates.most_common()):
+        for full, count in order[stem]:
+
+            path = to_path(full)
+
+            try:
+                if not path.exists():
+                    continue
+            except PermissionError:
                 continue
 
-            unq_base = unique_letters(base)
-            rate = distance_relative(unq_term, unq_base) * distance(unq_term, unq_base)
-            rate *= sqrt(distance(term, base[:len(term)]) + 1)
-            rate *= sqrt(count_missing_letters_rel(term, base) + 1)
-            rate /= (count_common_head(term, base) + 1)
-            rate *= (ratio.get(base, 0)) / 100
-            if rate <= MAX_RATE_FOR_RESULT:
-                rates[base] = rate
+            result[count].append(
+                Answer(
+                    path=path,
+                    dir=path.parent,
+                    stem=stem,
+                    runs=count,
+                    score=rate
+                )
+            )
 
-        result = defaultdict(list)
-        for no, (base, rate) in enumerate(reversed(rates.most_common())):
-            for (full, count) in order[base]:
-                result[count].append((full, op.dirname(full), base, count, rate))
+    result = [result[i] for i in sorted(result, reverse=True)]
 
-        result = [result[i] for i in sorted(result, reverse=True)]
-        result = tuple(tuple(reduce(add, result)) if result else [])
-        if CACHE is not None:
-            CACHE[key] = result
+    result = tuple(tuple(reduce(add, result)) if result else [])
 
-    result = result[:MAX_RESULTS_COUNT]
+    result = result[:cs.MAX_RESULTS_COUNT]
     return result
 
 
-def lookup(query: str):
-    if KEYBOARD.IS_RUS(query):
-        query = KEYBOARD.CONVERT(query)
+def lookup(query: str) -> tuple[Answer, ...]:
+    if cs.Keyboard.IsCyrillic(query):
+        query = cs.Keyboard.Translate(query)
     return _lookup(query)
 
 
-def increment(path) -> None:
+def increment(path: str) -> None:
     path = re.sub(r'(\\+)', r'\\', path)
 
     api = get_api()
@@ -262,7 +281,13 @@ if __name__ == '__main__':
 
     start = time()
     order = lookup(query)
-    print(' ++ %0.5f sec %i files for %r' % (time() - start, len(order), query))
+    print(f' ++ {time() - start:f}s {len(order):d} files for {query}')
 
-    for no, (full, path, base, runs, rate) in enumerate(order[:20]):
-        print('%2i. %i %0.3f %s | %s' % (no, runs, rate, path, base))
+    for no, item in enumerate(order[:20]):
+        print(
+            f'{no:2d}. '
+            f'{item.runs:d} '
+            f'{item.score:0.3f} '
+            f'{item.path} '
+        )
+        # print(dir(item.path))

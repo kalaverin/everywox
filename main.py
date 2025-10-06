@@ -22,16 +22,7 @@ from win32com import client
 from win32process import CREATE_NO_WINDOW
 
 import search
-from const import WOX_SDK_PATH
-
-try:
-    from wox import Wox
-
-except ImportError:
-    import sys
-
-    sys.path = [WOX_SDK_PATH] + sys.path
-    from wox import Wox
+from compat import Wox
 
 
 def needs_admin(path: str) -> bool:
@@ -89,8 +80,9 @@ def needs_admon_another_one_yet(path: str) -> bool:
     return False
 
 
-def run_something(path: str) -> None:
-    extension = Path(path).suffix[1:].lower()
+def run_something(path: Path) -> None:
+    path = Path(path)
+    extension = path.suffix[1:].lower()
 
     if extension in ("lnk", "pif"):
         link = client.Dispatch("WScript.Shell").CreateShortCut(path)
@@ -128,26 +120,32 @@ def run_something(path: str) -> None:
 
 class Everything(Wox):
 
-    def query(self, query)-> list[dict[str, Any]]:
+    @classmethod
+    def query(cls, query)-> list[dict[str, Any]]:
         results = []
-        for full, path, name, count, rate in search.lookup(query):
-            title = op.basename(full).lower()
-            if op.splitext(title)[1].lower() == ".exe":
-                title = op.splitext(title)[0]
+
+        for item in search.lookup(query):
+
+            if item.path.suffix.lower().endswith(".exe"):
+                title = item.path.stem
+            else:
+                title = item.path.name
 
             results.append(
                 {
-                    "Title": title,
-                    "SubTitle": path,
-                    "IcoPath": full,
+                    "Title": title.lower(),
+                    "SubTitle": str(item.dir).replace('\\', '/'),
+                    "IcoPath": str(item.path).replace('\\', '/'),
                     "ContextData": "ctxData",
+
                     "JsonRPCAction": {
                         "method": "run_something",
-                        "parameters": [full],
+                        "parameters": [str(item.path)],
                         "dontHideAfterAction": False,
                     },
                 }
             )
+
         return results
 
     def run_something(self, path) -> None:
@@ -168,7 +166,11 @@ if __name__ == "__main__":
     Everything()
 
     # for debugging comment Everything() create and uncomment this
-
     # query = 'tcmd'
-    # path, workdir, executive, runs, rate = search.lookup(query)[0]
+
+    # result = Everything.query(query)
+    # print(result)
+
+    # path: Path = result[0]['JsonRPCAction']['parameters'][0]
+    # print(path)
     # run_something(path)

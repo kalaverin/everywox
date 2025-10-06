@@ -19,5 +19,6 @@ dependencies = [
     "ruff>=0.13.3",
     "ty>=0.0.1a21",
     "types-lxml>=2025.8.25",
+    "typing-extensions>=4.15.0",
     "uv>=0.8.23",
 ]
